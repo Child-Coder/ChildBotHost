@@ -2,7 +2,7 @@
 
 ![BotAlto Logo](https://raw.githubusercontent.com/DevAryanPro/BotAlto-Telegram-Bot-Builder/refs/heads/main/Images/photo_2025-08-02_15-55-27.jpg)
 
-BotAlto is an open-source platform for hosting and managing Telegram bots with a user-friendly dashboard. It allows you to create, manage, and deploy multiple Telegram bots from a single interface, complete with custom command creation and real-time control.
+ChildBotHost is an open-source platform for hosting and managing Telegram bots with a user-friendly dashboard. It allows you to create, manage, and deploy multiple Telegram bots from a single interface, complete with custom command creation and real-time control.
 
 ## Features
 
@@ -18,8 +18,8 @@ BotAlto is an open-source platform for hosting and managing Telegram bots with a
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/ProKaiiddo/BotAlto
-   cd BotAlto
+   git clone https://github.com/Child-Coder/ChildBitHost
+   cd ChildBitHost
    ```
 
 2. Install dependencies:

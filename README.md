@@ -219,3 +219,4 @@ We welcome contributions! Please fork the repository and submit pull requests. F
 
 **ChildBotHost** - Open Source Telegram Bot Platform Server  
 Developed with ❤️ by Kaiiddo
+Modified By 🖤 Child-Coder

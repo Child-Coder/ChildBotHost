@@ -6,11 +6,10 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
-// ---------- App & Static Files Setup ----------
+// ---------- App Setup ----------
 const app = express();
 app.use(express.json());
 app.use(cors({ origin: '*' }));
-// REMOVED: app.use(express.static(path.join(__dirname, '../Frontend'))); // This line was removed as it was causing the issue.
 
 // ---------- Persistence Setup ----------
 const DATA_DIR = path.join(__dirname, 'data');
@@ -62,7 +61,7 @@ function loadData() {
   }
 }
 
-// ---------- Bot Logic (No Changes Here) ----------
+// ---------- Bot Logic ----------
 /********************************************************************
  * SECURITY WARNING: The use of `new Function('ctx', code)` allows  *
  * for Remote Code Execution (RCE). Any user with access to this    *
@@ -139,9 +138,8 @@ function stopBot(botId) {
   saveData();
 }
 
-// ======================= THE FIX =======================
+// ======================= THE FIX IS HERE =======================
 // This new section explicitly serves the HTML file for the main page.
-// This is more reliable than using express.static in some environments.
 app.get('/', (req, res) => {
     try {
         const indexPath = path.join(__dirname, '../Frontend/index.html');
@@ -151,10 +149,10 @@ app.get('/', (req, res) => {
         console.error('Failed to send index.html:', error);
     }
 });
-// ========================================================
+// ===============================================================
 
 
-// ---------- API Endpoints (No Changes Here) ----------
+// ---------- API Endpoints ----------
 app.post('/createBot', async (req, res) => {
   const { token, name } = req.body;
   if (!token || !name) {

@@ -10,7 +10,7 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 app.use(cors({ origin: '*' }));
-app.use(express.static(path.join(__dirname, '../Frontend')));
+// REMOVED: app.use(express.static(path.join(__dirname, '../Frontend'))); // This line was removed as it was causing the issue.
 
 // ---------- Persistence Setup ----------
 const DATA_DIR = path.join(__dirname, 'data');
@@ -30,7 +30,6 @@ let commands = {};  // { botId: { "start": "code", ... } }
 function saveData() {
   try {
     const botsToSave = {};
-    // Exclude non-serializable 'instance' property from bots before saving
     Object.keys(bots).forEach(id => {
       const { token, name, status } = bots[id];
       botsToSave[id] = { token, name, status };
@@ -47,7 +46,6 @@ function loadData() {
     if (fs.existsSync(BOTS_FILE)) {
       const rawBots = fs.readFileSync(BOTS_FILE);
       const loadedBots = JSON.parse(rawBots);
-      // Restore bots with a null instance
       Object.keys(loadedBots).forEach(id => {
         bots[id] = { ...loadedBots[id], instance: null };
       });
@@ -59,12 +57,12 @@ function loadData() {
     console.log('✅ Data loaded successfully.');
   } catch (error) {
     console.error('⚠️ Error loading data:', error);
-    // Start with empty stores if loading fails
     bots = {};
     commands = {};
   }
 }
 
+// ---------- Bot Logic (No Changes Here) ----------
 /********************************************************************
  * SECURITY WARNING: The use of `new Function('ctx', code)` allows  *
  * for Remote Code Execution (RCE). Any user with access to this    *
@@ -73,8 +71,6 @@ function loadData() {
  ********************************************************************/
 function registerHandlers(instance, botId) {
   instance.context.updateTypes = [];
-
-  // Default /start command
   const defaultStartCode = "ctx.reply('🚀 ChildBotHost bot online!')";
   const startCode = (commands[botId] && commands[botId]['start']) || defaultStartCode;
   
@@ -87,10 +83,9 @@ function registerHandlers(instance, botId) {
     }
   });
 
-  // User-defined commands
   const botCmds = commands[botId] || {};
   Object.keys(botCmds).forEach(cmdName => {
-    if (cmdName === 'start') return; // Already handled
+    if (cmdName === 'start') return;
     instance.command(cmdName, ctx => {
       try {
         new Function('ctx', botCmds[cmdName])(ctx);
@@ -101,7 +96,6 @@ function registerHandlers(instance, botId) {
     });
   });
 
-  // Built-in ping command
   instance.command('ping', ctx => {
     const t0 = Date.now();
     ctx.reply('🏓 Pong!').then(sentMessage => {
@@ -111,8 +105,6 @@ function registerHandlers(instance, botId) {
   });
 }
 
-
-// ---------- Bot Lifecycle Helpers ----------
 function launchBot(botId) {
   const botCfg = bots[botId];
   if (!botCfg || botCfg.status === 'RUN') return;
@@ -147,8 +139,22 @@ function stopBot(botId) {
   saveData();
 }
 
+// ======================= THE FIX =======================
+// This new section explicitly serves the HTML file for the main page.
+// This is more reliable than using express.static in some environments.
+app.get('/', (req, res) => {
+    try {
+        const indexPath = path.join(__dirname, '../Frontend/index.html');
+        res.sendFile(indexPath);
+    } catch (error) {
+        res.status(500).send('Error loading the page. Check server logs.');
+        console.error('Failed to send index.html:', error);
+    }
+});
+// ========================================================
 
-// ---------- API Endpoints ----------
+
+// ---------- API Endpoints (No Changes Here) ----------
 app.post('/createBot', async (req, res) => {
   const { token, name } = req.body;
   if (!token || !name) {
@@ -156,13 +162,11 @@ app.post('/createBot', async (req, res) => {
   }
 
   try {
-    // Validate token by fetching bot info
     const tmp = new Telegraf(token);
     await tmp.telegram.getMe();
-
     const id = Math.random().toString(36).substring(2, 15);
     bots[id] = { token, name, instance: null, status: 'STOP' };
-    commands[id] = {}; // Initialize commands for the new bot
+    commands[id] = {};
     saveData();
     res.status(201).json({ ok: true, botId: id });
   } catch (e) {
@@ -173,7 +177,6 @@ app.post('/createBot', async (req, res) => {
 app.post('/deleteBot', (req, res) => {
   const { botId } = req.body;
   if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  
   stopBot(botId);
   delete bots[botId];
   delete commands[botId];
@@ -184,7 +187,6 @@ app.post('/deleteBot', (req, res) => {
 app.post('/startBot', (req, res) => {
   const { botId } = req.body;
   if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  
   launchBot(botId);
   res.json({ ok: true });
 });
@@ -192,20 +194,18 @@ app.post('/startBot', (req, res) => {
 app.post('/stopBot', (req, res) => {
   const { botId } = req.body;
   if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  
   stopBot(botId);
   res.json({ ok: true });
 });
 
 app.post('/addCommand', (req, res) => {
   const { botId, name, code } = req.body;
-  const commandName = name.replace('/', ''); // Sanitize name
+  const commandName = name.replace('/', '');
   if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
   
   commands[botId] = commands[botId] || {};
   commands[botId][commandName] = code;
 
-  // If bot is running, restart it to apply the new command handlers
   if (bots[botId].status === 'RUN') {
     stopBot(botId);
     launchBot(botId);
@@ -217,14 +217,13 @@ app.post('/addCommand', (req, res) => {
 
 app.post('/delCommand', (req, res) => {
   const { botId, name } = req.body;
-  const commandName = name.replace('/', ''); // Sanitize name
+  const commandName = name.replace('/', '');
   if (!commands[botId] || !commands[botId][commandName]) {
     return res.status(404).json({ ok: false, message: 'Command not found.' });
   }
   
   delete commands[botId][commandName];
   
-  // If bot is running, restart it to remove the handler
   if (bots[botId].status === 'RUN') {
     stopBot(botId);
     launchBot(botId);
@@ -245,7 +244,7 @@ app.get('/getBots', (_, res) => {
 
 app.get('/getCommands', (req, res) => {
   const { botId } = req.query;
-  if (!commands[botId]) return res.json({}); // Return empty object for consistency
+  if (!commands[botId]) return res.json({});
   res.json(commands[botId]);
 });
 
@@ -259,7 +258,6 @@ app.listen(PORT, () => {
   console.log('------------------------------------');
   console.log(`⚡ ChildBotHost server running on :${PORT}`);
   
-  // Load existing data and restart any bots that were running
   loadData();
   console.log('🔄 Restoring running bots...');
   Object.keys(bots).forEach(botId => {

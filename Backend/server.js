@@ -1,267 +1,185 @@
-// ChildBotHost – Backend/server.js
-require('dotenv').config();
-const { Telegraf } = require('telegraf');
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
+// ChildBotHost V2 - Backend/server.js
+// A fresh, simple, and reliable server code.
 
-// ---------- App Setup ----------
+const express = require('express');
+const { Telegraf } = require('telegraf');
+const path = require('path');
+const fs = require('fs');
+
 const app = express();
 app.use(express.json());
-app.use(cors({ origin: '*' }));
 
-// ---------- Persistence Setup ----------
+// --- Data Persistence Setup ---
 const DATA_DIR = path.join(__dirname, 'data');
 const BOTS_FILE = path.join(DATA_DIR, 'bots.json');
 const COMMANDS_FILE = path.join(DATA_DIR, 'commands.json');
 
-// Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR);
 }
 
-// In-memory stores (will be populated from files)
-let bots = {};      // { botId: {token, name, instance:Telegraf|null, status:'STOP'|'RUN'} }
-let commands = {};  // { botId: { "start": "code", ... } }
+// --- In-memory Stores ---
+let bots = {};      // { botId: { token, name, instance, status } }
+let commands = {};  // { botId: { command: code } }
 
-// ---------- Persistence Helpers ----------
+// --- Helper Functions ---
 function saveData() {
-  try {
-    const botsToSave = {};
-    Object.keys(bots).forEach(id => {
-      const { token, name, status } = bots[id];
-      botsToSave[id] = { token, name, status };
-    });
-    fs.writeFileSync(BOTS_FILE, JSON.stringify(botsToSave, null, 2));
-    fs.writeFileSync(COMMANDS_FILE, JSON.stringify(commands, null, 2));
-  } catch (error) {
-    console.error('⚠️ Error saving data:', error);
-  }
+    try {
+        const botsToSave = Object.fromEntries(
+            Object.entries(bots).map(([id, { token, name, status }]) => [id, { token, name, status }])
+        );
+        fs.writeFileSync(BOTS_FILE, JSON.stringify(botsToSave, null, 2));
+        fs.writeFileSync(COMMANDS_FILE, JSON.stringify(commands, null, 2));
+    } catch (error) {
+        console.error('⚠️ Could not save data:', error);
+    }
 }
 
 function loadData() {
-  try {
-    if (fs.existsSync(BOTS_FILE)) {
-      const rawBots = fs.readFileSync(BOTS_FILE);
-      const loadedBots = JSON.parse(rawBots);
-      Object.keys(loadedBots).forEach(id => {
-        bots[id] = { ...loadedBots[id], instance: null };
-      });
-    }
-    if (fs.existsSync(COMMANDS_FILE)) {
-      const rawCmds = fs.readFileSync(COMMANDS_FILE);
-      commands = JSON.parse(rawCmds);
-    }
-    console.log('✅ Data loaded successfully.');
-  } catch (error) {
-    console.error('⚠️ Error loading data:', error);
-    bots = {};
-    commands = {};
-  }
-}
-
-// ---------- Bot Logic ----------
-/********************************************************************
- * SECURITY WARNING: The use of `new Function('ctx', code)` allows  *
- * for Remote Code Execution (RCE). Any user with access to this    *
- * panel can run arbitrary code on the server. This is EXTREMELY   *
- * DANGEROUS. Use this tool only in a trusted, isolated environment.*
- ********************************************************************/
-function registerHandlers(instance, botId) {
-  instance.context.updateTypes = [];
-  const defaultStartCode = "ctx.reply('🚀 ChildBotHost bot online!')";
-  const startCode = (commands[botId] && commands[botId]['start']) || defaultStartCode;
-  
-  instance.command('start', ctx => {
     try {
-      new Function('ctx', startCode)(ctx);
-    } catch (e) {
-      console.error(`Error in /start for bot ${botId}:`, e);
-      ctx.reply('⚠️ /start code error: ' + e.message);
+        if (fs.existsSync(BOTS_FILE)) {
+            const rawData = fs.readFileSync(BOTS_FILE);
+            const loadedBots = JSON.parse(rawData);
+            Object.keys(loadedBots).forEach(id => {
+                bots[id] = { ...loadedBots[id], instance: null };
+            });
+        }
+        if (fs.existsSync(COMMANDS_FILE)) {
+            commands = JSON.parse(fs.readFileSync(COMMANDS_FILE));
+        }
+        console.log('✅ Data loaded successfully.');
+    } catch (error) {
+        console.error('⚠️ Could not load data:', error);
     }
-  });
-
-  const botCmds = commands[botId] || {};
-  Object.keys(botCmds).forEach(cmdName => {
-    if (cmdName === 'start') return;
-    instance.command(cmdName, ctx => {
-      try {
-        new Function('ctx', botCmds[cmdName])(ctx);
-      } catch (e) {
-        console.error(`Error in /${cmdName} for bot ${botId}:`, e);
-        ctx.reply(`⚠️ Code error in /${cmdName}: ` + e.message);
-      }
-    });
-  });
-
-  instance.command('ping', ctx => {
-    const t0 = Date.now();
-    ctx.reply('🏓 Pong!').then(sentMessage => {
-        const t1 = sentMessage.date * 1000;
-        ctx.replyWithMarkdownV2(`*Round\\-trip*: ${t1 - t0} ms`);
-    }).catch(console.error);
-  });
 }
 
+// --- Bot Management ---
 function launchBot(botId) {
-  const botCfg = bots[botId];
-  if (!botCfg || botCfg.status === 'RUN') return;
+    const bot = bots[botId];
+    if (!bot || bot.status === 'RUN') return;
 
-  try {
-    botCfg.instance = new Telegraf(botCfg.token);
-    registerHandlers(botCfg.instance, botId);
-    botCfg.instance.launch({ polling: { timeout: 3 } });
-    botCfg.status = 'RUN';
-    console.log(`✅ Bot '${botCfg.name}' started successfully.`);
-  } catch (error) {
-    console.error(`⚠️ Failed to launch bot '${botCfg.name}':`, error);
-    botCfg.status = 'STOP';
-  }
-  saveData();
+    try {
+        bot.instance = new Telegraf(bot.token);
+        const botCommands = commands[botId] || {};
+        
+        // Register all commands
+        for (const cmdName in botCommands) {
+            bot.instance.command(cmdName, (ctx) => {
+                try {
+                    new Function('ctx', botCommands[cmdName])(ctx);
+                } catch (e) {
+                    ctx.reply(`⚠️ Error in /${cmdName}: ${e.message}`);
+                }
+            });
+        }
+        
+        bot.instance.launch();
+        bot.status = 'RUN';
+        console.log(`🚀 Bot '${bot.name}' is now running.`);
+    } catch (error) {
+        console.error(`Error launching bot ${bot.name}:`, error);
+        bot.status = 'STOP';
+    }
+    saveData();
 }
 
 function stopBot(botId) {
-  const botCfg = bots[botId];
-  if (!botCfg || botCfg.status === 'STOP') return;
+    const bot = bots[botId];
+    if (!bot || bot.status === 'STOP') return;
 
-  if (botCfg.instance) {
-    try {
-      botCfg.instance.stop('SIGTERM');
-      console.log(`🛑 Bot '${botCfg.name}' stopped.`);
-    } catch (error) {
-      console.error(`⚠️ Error stopping bot '${botCfg.name}':`, error);
+    if (bot.instance) {
+        bot.instance.stop('SIGTERM');
+        bot.instance = null;
     }
-    botCfg.instance = null;
-  }
-  botCfg.status = 'STOP';
-  saveData();
+    bot.status = 'STOP';
+    console.log(`🛑 Bot '${bot.name}' has been stopped.`);
+    saveData();
 }
 
-// ======================= THE FIX IS HERE =======================
-// This new section explicitly serves the HTML file for the main page.
+// ======================= API Endpoints =======================
+
+// --- Frontend Route (The main fix) ---
 app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../Frontend/index.html'));
+});
+
+// --- Bot APIs ---
+app.get('/getBots', (req, res) => {
+    const botList = Object.entries(bots).map(([botId, { name, status }]) => ({ botId, name, status }));
+    res.json(botList);
+});
+
+app.post('/createBot', async (req, res) => {
+    const { token, name } = req.body;
     try {
-        const indexPath = path.join(__dirname, '../Frontend/index.html');
-        res.sendFile(indexPath);
+        const tempBot = new Telegraf(token);
+        await tempBot.telegram.getMe();
+        
+        const botId = `bot_${Date.now()}`;
+        bots[botId] = { token, name, instance: null, status: 'STOP' };
+        commands[botId] = { start: "ctx.reply('Hello from ChildBotHost V2!')" }; // Default start command
+        saveData();
+        res.status(201).json({ ok: true, botId });
     } catch (error) {
-        res.status(500).send('Error loading the page. Check server logs.');
-        console.error('Failed to send index.html:', error);
+        res.status(400).json({ ok: false, message: 'Invalid Telegram token.' });
     }
 });
-// ===============================================================
 
-
-// ---------- API Endpoints ----------
-app.post('/createBot', async (req, res) => {
-  const { token, name } = req.body;
-  if (!token || !name) {
-    return res.status(400).json({ ok: false, message: 'Token and name are required.' });
-  }
-
-  try {
-    const tmp = new Telegraf(token);
-    await tmp.telegram.getMe();
-    const id = Math.random().toString(36).substring(2, 15);
-    bots[id] = { token, name, instance: null, status: 'STOP' };
-    commands[id] = {};
-    saveData();
-    res.status(201).json({ ok: true, botId: id });
-  } catch (e) {
-    res.status(400).json({ ok: false, message: 'Invalid or expired Telegram token.' });
-  }
+app.post('/toggleBot', (req, res) => {
+    const { botId } = req.body;
+    if (!bots[botId]) return res.status(404).json({ ok: false });
+    
+    if (bots[botId].status === 'RUN') {
+        stopBot(botId);
+    } else {
+        launchBot(botId);
+    }
+    res.json({ ok: true });
 });
 
 app.post('/deleteBot', (req, res) => {
-  const { botId } = req.body;
-  if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  stopBot(botId);
-  delete bots[botId];
-  delete commands[botId];
-  saveData();
-  res.json({ ok: true });
-});
-
-app.post('/startBot', (req, res) => {
-  const { botId } = req.body;
-  if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  launchBot(botId);
-  res.json({ ok: true });
-});
-
-app.post('/stopBot', (req, res) => {
-  const { botId } = req.body;
-  if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  stopBot(botId);
-  res.json({ ok: true });
-});
-
-app.post('/addCommand', (req, res) => {
-  const { botId, name, code } = req.body;
-  const commandName = name.replace('/', '');
-  if (!bots[botId]) return res.status(404).json({ ok: false, message: 'Bot not found.' });
-  
-  commands[botId] = commands[botId] || {};
-  commands[botId][commandName] = code;
-
-  if (bots[botId].status === 'RUN') {
+    const { botId } = req.body;
+    if (!bots[botId]) return res.status(404).json({ ok: false });
+    
     stopBot(botId);
-    launchBot(botId);
-  }
-  
-  saveData();
-  res.json({ ok: true });
+    delete bots[botId];
+    delete commands[botId];
+    saveData();
+    res.json({ ok: true });
 });
 
-app.post('/delCommand', (req, res) => {
-  const { botId, name } = req.body;
-  const commandName = name.replace('/', '');
-  if (!commands[botId] || !commands[botId][commandName]) {
-    return res.status(404).json({ ok: false, message: 'Command not found.' });
-  }
-  
-  delete commands[botId][commandName];
-  
-  if (bots[botId].status === 'RUN') {
-    stopBot(botId);
-    launchBot(botId);
-  }
-  
-  saveData();
-  res.json({ ok: true });
-});
-
-app.get('/getBots', (_, res) => {
-  const list = Object.entries(bots).map(([id, b]) => ({
-    botId: id,
-    name: b.name,
-    status: b.status,
-  }));
-  res.json(list);
-});
-
+// --- Command APIs ---
 app.get('/getCommands', (req, res) => {
-  const { botId } = req.query;
-  if (!commands[botId]) return res.json({});
-  res.json(commands[botId]);
+    const { botId } = req.query;
+    if (!commands[botId]) return res.json({});
+    res.json(commands[botId]);
 });
 
+app.post('/saveCommand', (req, res) => {
+    const { botId, name, code } = req.body;
+    if (!bots[botId] || !name) return res.status(400).json({ ok: false });
 
-// ---------- Server Initialization ----------
-process.on('uncaughtException', (err) => console.error('UNCAUGHT EXCEPTION:', err));
-process.on('unhandledRejection', (reason) => console.error('UNHANDLED REJECTION:', reason));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('------------------------------------');
-  console.log(`⚡ ChildBotHost server running on :${PORT}`);
-  
-  loadData();
-  console.log('🔄 Restoring running bots...');
-  Object.keys(bots).forEach(botId => {
+    commands[botId][name] = code;
+    // If bot is running, restart to apply changes
     if (bots[botId].status === 'RUN') {
-      launchBot(botId);
+        stopBot(botId);
+        launchBot(botId);
     }
-  });
-  console.log('------------------------------------');
+    saveData();
+    res.json({ ok: true });
+});
+
+// ======================= Server Initialization =======================
+const PORT = 3000;
+app.listen(PORT, () => {
+    console.log('------------------------------------');
+    console.log(`⚡ ChildBotHost V2 server running on port ${PORT}`);
+    loadData();
+    // Restart any bots that were previously running
+    Object.keys(bots).forEach(id => {
+        if (bots[id].status === 'RUN') {
+            launchBot(id);
+        }
+    });
+    console.log('------------------------------------');
 });

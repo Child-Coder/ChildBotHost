@@ -2,39 +2,133 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>ChildBotHost – Telegram Bot Builder</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <title>ChildBotHost V2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/lucide@latest/font/lucide.min.css">
   <style>
-    html,body{height:100%}
-    body{font-family:'Google Sans',sans-serif;background:#f8f9fa;display:flex;flex-direction:column}
-    main{flex:1}
-    footer{background:#fff;border-top:1px solid #dee2e6;padding:.75rem 0;text-align:center;font-size:.875rem;color:#6c757d}
-    .btn-lucide i{vertical-align:text-bottom;margin-right:.25rem}
-    .card{transition:.2s}
-    .card:hover{transform:translateY(-2px)}
-    .toast-container{position:fixed;top:20px;right:20px;z-index:1100}
-    #createBotModal .modal-body{padding:1.5rem}
+    body { background-color: #f0f2f5; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; }
+    .card { transition: box-shadow .2s ease-in-out; }
+    .card:hover { box-shadow: 0 .5rem 1rem rgba(0,0,0,.15); }
+    .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; }
+    .status-run { background-color: #198754; }
+    .status-stop { background-color: #6c757d; }
   </style>
 </head>
 <body>
-<main class="container py-4">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div class="d-flex align-items-center">
-      <h1 class="fw-bold mb-0">ChildBotHost</h1>
-      <span class="badge bg-secondary ms-2 align-self-center">v1.0.0</span>
-    </div>
-    <button class="btn btn-primary btn-lucide" data-bs-toggle="modal" data-bs-target="#createBotModal">
-      <i data-lucide="plus"></i>Create New Bot
+<div class="container py-5">
+  <header class="d-flex justify-content-between align-items-center pb-3 mb-4 border-bottom">
+    <h1 class="h3">ChildBotHost V2</h1>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createBotModal">
+      + Create New Bot
     </button>
-  </div>
+  </header>
 
-  <!-- Create Bot Modal -->
-  <div class="modal fade" id="createBotModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
+  <main>
+    <div id="botsGrid" class="row g-4">
+      <!-- Bots will be loaded here -->
+    </div>
+  </main>
+</div>
+
+<!-- Create Bot Modal -->
+<div class="modal fade" id="createBotModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create New Bot</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="botName" class="form-label">Bot Name</label>
+          <input type="text" class="form-control" id="botName" placeholder="My Awesome Bot">
+        </div>
+        <div class="mb-3">
+          <label for="botToken" class="form-label">Bot Token</label>
+          <input type="text" class="form-control" id="botToken" placeholder="From @BotFather">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" onclick="createBot()">Create Bot</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  const API = {
+    post: (endpoint, body) => fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(res => res.json()),
+    get: (endpoint) => fetch(endpoint).then(res => res.json()),
+  };
+
+  async function loadBots() {
+    const bots = await API.get('/getBots');
+    const grid = document.getElementById('botsGrid');
+    grid.innerHTML = '';
+    if (bots.length === 0) {
+        grid.innerHTML = `<div class="col-12"><div class="card card-body text-center"><p class="mb-0 text-muted">No bots found. Click 'Create New Bot' to start!</p></div></div>`;
+        return;
+    }
+    bots.forEach(bot => {
+      const col = document.createElement('div');
+      col.className = 'col-12 col-md-6 col-lg-4';
+      col.innerHTML = `
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h5 class="card-title mb-0">${bot.name}</h5>
+              <span class="status-dot ${bot.status === 'RUN' ? 'status-run' : 'status-stop'}" title="${bot.status}"></span>
+            </div>
+            <button class="btn btn-sm ${bot.status === 'RUN' ? 'btn-warning' : 'btn-success'}" onclick="toggleBot('${bot.botId}')">
+              ${bot.status === 'RUN' ? 'Stop' : 'Start'} Bot
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteBot('${bot.botId}')">Delete</button>
+          </div>
+        </div>
+      `;
+      grid.appendChild(col);
+    });
+  }
+
+  async function createBot() {
+    const name = document.getElementById('botName').value;
+    const token = document.getElementById('botToken').value;
+    if (!name || !token) return alert('Please provide both name and token.');
+
+    const result = await API.post('/createBot', { name, token });
+    if (result.ok) {
+      bootstrap.Modal.getInstance(document.getElementById('createBotModal')).hide();
+      document.getElementById('botName').value = '';
+      document.getElementById('botToken').value = '';
+      loadBots();
+    } else {
+      alert(`Error: ${result.message}`);
+    }
+  }
+
+  async function toggleBot(botId) {
+    await API.post('/toggleBot', { botId });
+    loadBots();
+  }
+
+  async function deleteBot(botId) {
+    if (confirm('Are you sure you want to delete this bot?')) {
+      await API.post('/deleteBot', { botId });
+      loadBots();
+    }
+  }
+
+  // Initial load
+  document.addEventListener('DOMContentLoaded', loadBots);
+</script>
+</body>
+</html>      <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Create New Bot</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
